@@ -1,5 +1,7 @@
 import re
 from PIL import Image
+from statistics import mean
+from math import sqrt
 
 
 def rgb_to_hex(r: int, g: int, b: int) -> str:
@@ -104,7 +106,7 @@ def lerp(val1: float, val2: float, pcnt: float) -> float:
     return val1 + (val2 - val1) * pcnt
 
 
-def create_hsl_lerp_range(color1: str, color2: str, total_colors: int) -> list[str]:
+def hsl_lerp(color1: str, color2: str, total_colors: int) -> list[str]:
     result = []
     color1_hsl = hex_to_hsl(color1)
     color2_hsl = hex_to_hsl(color2)
@@ -142,13 +144,108 @@ def show_palettes(*palettes: list[str], blob_size: int = 100) -> None:
     return
 
 
-def generate_ansi_palette(*colors: str) -> list[str]:
+HSL = tuple[float, float, float]
+
+
+def dist(val1: tuple[float, ...], val2: tuple[float, ...],
+         weights: tuple[float, ...] | None = None) -> float:
+    if weights is None:
+        weights = (1,) * len(val1)
+    diff_sq = [((x2 - x1) * w) ** 2 for x2, x1, w in zip(val2, val1, weights)]
+    return sqrt(sum(diff_sq))
+
+
+def sort_color_by_dist(lb: HSL, target: HSL, ub: HSL,
+                       *colors: HSL) -> list[HSL] | None:
+    candidates = []
+    candidates_for_dist = []
+    for hsl in colors:
+        if lb[0] > ub[0]:
+            is_in_hsl_range = all((l <= c and c <= 360) or (
+                0 <= c and c < u) for l, c, u in zip(lb, hsl, ub))
+        else:
+            is_in_hsl_range = all((l <= c and c < u)
+                                  for l, c, u in zip(lb, hsl, ub))
+        if is_in_hsl_range:
+            if (hsl[0] - lb[0]) > 60:
+                hue_scaled = (hsl[0] - 360) / 60
+            else:
+                hue_scaled = hsl[0] / 60
+            candidates.append(hsl)
+            candidates_for_dist.append(hue_scaled, hsl[1], hsl[2])
+    if len(candidates) == 0:
+        return None
+    if (ub[0] - lb[0]) == 360:
+        dists = [dist(target[1:], cand[1:]) for cand in candidates_for_dist]
+    else:
+        # in order to emphasize hue while scaling, 0 ~= lb hue, 1 ~= ub hue
+        target_hue_dist = ((target[0] - lb[0]) % 360) / 60
+        target_for_dist = (target_hue_dist, target[1], target[2])
+        dists = [dist(target_for_dist, cand, weights=(3, 3, 1))
+                 for cand in candidates_for_dist]
+    sorted_pair = sorted(zip(dists, candidates))
+    dists, candidates = zip(*sorted_pair)
+    return list(candidates)
+
+
+def generate_ansi_palette(*colors: str, overrides: dict | None = None) -> list[str]:
     result = []
-    thresholds = {
-        "black": [(0, 0, 0), (360, 0.2, 0.2)],
-        "red": [(0, 0, 0), (360, 0.2, 0.2)],
-        "green": [(0, 0, 0), (360, 0.2, 0.2)],
+    main_targets = {
+        # ansi_name : [lower_bound, target, upper_bound]
+        "black": [(0, 0, 0), (0, 0, 0), (360, 0.33, 0.33)],
+        "red": [(330, 0.2, 0.33), (0, 1, 0.5), (30, 1, 0.9)],
+        "green": [(90, 0.2, 0.33), (120, 1, 0.5), (150, 1, 0.9)],
+        "yellow": [(30, 0.2, 0.33), (60, 1, 0.5), (90, 1, 0.9)],
+        "blue": [(210, 0.2, 0.33), (240, 1, 0.5), (270, 1, 0.9)],
+        "magenta": [(270, 0.2, 0.33), (300, 1, 0.5), (330, 1, 0.9)],
+        "cyan": [(150, 0.2, 0.33), (180, 1, 0.5), (210, 1, 0.9)],
+        "white": [(0, 0, 0.67), (0, 0, 0.67), (360, 0.33, 1)],
     }
+    bright_targets = {
+        # ansi_name : [lower_bound, target, upper_bound]
+        "bright_black": [(0, 0, 0), (0, 0, 0.33), (360, 0.33, 0.33)],
+        "bright_red": [(330, 0.2, 0.33), (0, 1, 0.75), (30, 1, 0.9)],
+        "bright_green": [(90, 0.2, 0.33), (120, 1, 0.75), (150, 1, 0.9)],
+        "bright_yellow": [(30, 0.2, 0.33), (60, 1, 0.75), (90, 1, 0.9)],
+        "bright_blue": [(210, 0.2, 0.33), (240, 1, 0.75), (270, 1, 0.9)],
+        "bright_magenta": [(270, 0.2, 0.33), (300, 1, 0.75), (330, 1, 0.9)],
+        "bright_cyan": [(150, 0.2, 0.33), (180, 1, 0.75), (210, 1, 0.9)],
+        "bright_white": [(0, 0, 0.67), (0, 0, 1), (360, 0.33, 1)],
+    }
+    hsl_colors = [hex_to_hsl(color) for color in colors]
+    avg_sat = mean(hsl[1] for hsl in hsl_colors)
+    avg_light = mean(hsl[2] for hsl in hsl_colors)
+    for name, main_target in main_targets.items():
+        if overrides is not None and name in overrides.keys():
+            result.append(overrides[name])
+            continue
+        lb, target, ub = main_target
+        match = sort_color_by_dist(lb, target, ub, *hsl_colors)
+        if match is None:
+            theme_input = hsl_to_hex(target[0], avg_sat, avg_light)
+            theme_blend = hsl_lerp(theme_input, hsl_to_hex(*target), 3)[1]
+            result.append(theme_blend)
+        else:
+            result.append(hsl_to_hex(*match[0]))
+    for index, (name, main_target) in enumerate(bright_targets.items()):
+        if overrides is not None and name in overrides.keys():
+            result.append(overrides[name])
+            continue
+        lb, target, ub = main_target
+        match = sort_color_by_dist(lb, target, ub, *hsl_colors)
+        if match is None or (hsl_to_hex(*match[0]) in result and len(match) == 1):
+            base_color = result[index]
+            lighter_color = lighten(base_color, 0.3)
+            result.append(lighter_color)
+        elif hsl_to_hex(*match[0]) in result:
+            result.append(hsl_to_hex(*match[1]))
+        else:
+            result.append(hsl_to_hex(*match[0]))
+    for i in range(8):
+        if hex_to_hsl(result[i])[2] > hex_to_hsl(result[i + 8])[2]:
+            temp = result[i]
+            result[i] = result[i + 8]
+            result[i + 8] = temp
     return result
 
 
