@@ -35,8 +35,7 @@ def hsl_lerp(color1: str, color2: str, total_colors: int) -> list[str]:
     return result
 
 
-def rgb_lerp(color1: str, color2: str,
-             total_colors: int) -> list[str]:
+def rgb_lerp(color1: str, color2: str, total_colors: int) -> list[str]:
     result = []
     color1_rgb = hex_to_rgb(color1)
     color2_rgb = hex_to_rgb(color2)
@@ -85,15 +84,16 @@ def dist(val1: tuple[float, ...], val2: tuple[float, ...],
 
 
 def sort_color_by_dist(lb: HSL, target: HSL, ub: HSL,
-                       *colors: HSL) -> list[HSL] | None:
+                       *colors: str) -> list[str] | None:
     candidates = []
     candidates_for_dist = []
-    for hsl in colors:
+    for color in colors:
+        hsl = hex_to_hsl(color)
         if lb[0] > ub[0]:
-            is_in_hsl_range = all((l <= c and c <= 360) or (
-                0 <= c and c < u) for l, c, u in zip(lb, hsl, ub))
+            is_in_hsl_range = all((l <= c <= 360) or (0 <= c < u)
+                                  for l, c, u in zip(lb, hsl, ub))
         else:
-            is_in_hsl_range = all((l <= c and c < u)
+            is_in_hsl_range = all((l <= c < u)
                                   for l, c, u in zip(lb, hsl, ub))
         if is_in_hsl_range:
             if (hsl[0] - lb[0]) > 60:
@@ -114,7 +114,8 @@ def sort_color_by_dist(lb: HSL, target: HSL, ub: HSL,
                  for cand in candidates_for_dist]
     sorted_pair = sorted(zip(dists, candidates))
     dists, candidates = zip(*sorted_pair)
-    return list(candidates)
+    result = list(candidates)
+    return [hsl_to_hex(*item) for item in result]
 
 
 def generate_ansi_palette(*colors: str, overrides: dict | None = None
@@ -150,7 +151,7 @@ def generate_ansi_palette(*colors: str, overrides: dict | None = None
             result.append(overrides[name])
             continue
         lb, target, ub = main_target
-        match = sort_color_by_dist(lb, target, ub, *hsl_colors)
+        match = sort_color_by_dist(lb, target, ub, *colors)
         if match is None:
             theme_input = hsl_to_hex(target[0], avg_sat, avg_light)
             theme_blend = hsl_lerp(theme_input, hsl_to_hex(*target), 3)[1]
@@ -162,7 +163,7 @@ def generate_ansi_palette(*colors: str, overrides: dict | None = None
             result.append(overrides[name])
             continue
         lb, target, ub = main_target
-        match = sort_color_by_dist(lb, target, ub, *hsl_colors)
+        match = sort_color_by_dist(lb, target, ub, *colors)
         if match is None or (hsl_to_hex(*match[0]) in result and len(match) == 1):
             base_color = result[index]
             lighter_color = lighten(base_color, 0.3)
@@ -176,6 +177,51 @@ def generate_ansi_palette(*colors: str, overrides: dict | None = None
             temp = result[i]
             result[i] = result[i + 8]
             result[i + 8] = temp
+    return result
+
+
+def generate_git_palette(*colors: str, overrides: dict | None = None
+                         ) -> list[str]:
+    result = []
+    main_targets = {
+        # ansi_name : [lower_bound, target, upper_bound]
+        # Gray
+        "ignored": [(0, 0, 0.33), (0, 0, 0.5), (360, 0.33, 0.67)],
+        # Mild green/blue
+        "untracked": [(90, 0.2, 0.3), (160, 0.4, 0.6), (210, 0.6, 0.9)],
+        # Bright green/blue
+        "added": [(90, 0.2, 0.33), (140, 0.7, 0.7), (210, 0.9, 0.9)],
+        # Yellow
+        "modified": [(30, 0.2, 0.33), (60, 1, 0.5), (90, 1, 0.9)],
+        # Red
+        "deleted": [(330, 0.2, 0.33), (0, 1, 0.7), (30, 1, 0.9)],
+        # Dark Red
+        "conflicting": [(330, 0.2, 0.33), (0, 1, 0.3), (30, 1, 0.9)],
+    }
+    hsl_colors = [hex_to_hsl(color) for color in colors]
+    avg_sat = mean(hsl[1] for hsl in hsl_colors)
+    avg_light = mean(hsl[2] for hsl in hsl_colors)
+    for name, main_target in main_targets.items():
+        if overrides is not None and name in overrides.keys():
+            result.append(overrides[name])
+            continue
+        lb, target, ub = main_target
+        match = sort_color_by_dist(lb, target, ub, *colors)
+        if match is not None and len(match) > 1:
+            i = 0
+            while match[i] in result and i < len(match):
+                i += 1
+            if i == len(match):
+                match = None
+            else:
+                result.append(match[i])
+                continue
+        if match is None:
+            theme_input = hsl_to_hex(target[0], avg_sat, avg_light)
+            theme_blend = hsl_lerp(theme_input, hsl_to_hex(*target), 3)[1]
+            result.append(theme_blend)
+        else:
+            result.append(match[0])
     return result
 
 
@@ -195,8 +241,8 @@ def generate_palette(*colors: str, min_colors: int = 3,
 
 
 def generate_theme_palette(basic: list[str] | str, variable: list[str] | str,
-                           language: list[str] | str, constant: list[str] | str,
-                           ui_hilights: dict[str, str] | None = None,
+                           language: list[str] | str,
+                           hilite: dict[str, str] | None = None,
                            ansi: list[str] | None = None, min_colors=3,
                            max_lightness=0.9) -> dict[str, list[str]]:
     if isinstance(basic, str):
@@ -211,182 +257,314 @@ def generate_theme_palette(basic: list[str] | str, variable: list[str] | str,
         language = [language]
     theme_lang = generate_palette(*language, min_colors, max_lightness)
 
-    if isinstance(constant, str):
-        constant = [constant]
-    theme_const = generate_palette(*constant, min_colors, max_lightness)
+    all_colors = [*basic, *variable, *language]
+    if hilite is not None:
+        hilite_colors = [color for palette in hilite.values()
+                         for color in palette]
+        all_colors.extend(hilite_colors)
 
     if ansi is None:
-        all_colors = [*basic, *variable, *language]
-        if ui_hilights is not None:
-            all_colors.append(*ui_hilights.values())
         theme_ansi = generate_ansi_palette(*all_colors)
     else:
         theme_ansi = ansi
 
-    if ui_hilights is None:
-        theme_hilite = [theme_ansi[1], theme_ansi[3]]
+    if hilite is None:
+        theme_brackets = [
+            theme_ansi[11], theme_ansi[13], theme_ansi[14],
+            theme_ansi[11], theme_ansi[13], theme_ansi[14]
+        ]
+        theme_hilite = [
+            theme_ansi[12],
+            theme_ansi[12],
+            theme_ansi[9],
+            theme_ansi[11]
+        ]
     else:
-        theme_hilite = list(ui_hilights.values())
+        theme_brackets = hilite["brackets"]
+        theme_hilite = hilite["highlight"]
+
+    theme_git = generate_git_palette(*all_colors)
+    theme_scrollbar = [theme_basic[int(len(theme_basic) / 2)] + "7f"]
 
     theme = {
-        "ui_basic": theme_basic,
+        "basic": theme_basic,
+        "scrollbar": theme_scrollbar,
+        "highlight": theme_hilite,
+        "git": theme_git,
+        "brackets": theme_brackets,
+        "ansi": theme_ansi,
         "variable": theme_var,
-        "language": theme_lang,
-        "constant": theme_const,
-        "ui_highlight": theme_hilite,
-        "ansi": theme_ansi
+        "language": theme_lang
     }
     return theme
 
 
-def modify_vscode_settings(settings_file: Path, colors: dict[str, str]) -> None:
+def modify_vscode_settings(settings_file: Path,
+                           colors: dict[str, list[str]]) -> None:
     settings = {}
     with open(settings_file, 'r') as file:
         settings = json.load(file)
     if settings == {}:
         raise ValueError("Could not extract JSON from settings file!")
-    ui_color_settings = settings["workbench.colorCustomizations"]
-    theme_settings = {
-        "basic": [[
-            "editor.background",
-            "editorCursor.background",
-            "editorGroup.emptyBackground",
-            "editorGroupHeader.tabsBackground",
-            "editorGroupHeader.noTabsBackground",
-            "tab.interactiveBackground",
-            "panel.background",
-            "editorWidget.background",
-            "activityBar.background",
-            "sideBar.background",
-            "sideBarTitle.background",
-            "sideBarSectionHeader.background",
-            "menu.background",
-            "quickInput.background",
-            "titleBar.activeBackground",
-            "titleBar.inactiveBackground",
-            "statusBar.background"
-        ], [
-            "tab.activeBackground",
-            "panel.border",
-            "editor.lineHighlightBackground",
-            "editor.selectionBackground",
-            "editorGroup.border",
-            "editorGroupHeader.border",
-            "editorGroupHeader.tabsBorder",
-            "tab.border",
-            "tab.unfocusedHoverBackground",
-            "tab.hoverBackground",
-            "editorWidget.border",
-            "activityBar.border",
-            "sideBar.border",
-            "input.background",
-            "checkbox.background",
-            "settings.dropdownBackground",
-            "dropdown.background",
-            "dropdown.listBackground",
-            "list.activeSelectionBackground",
-            "list.inactiveSelectionBackground",
-            "list.hoverBackground",
-            "titleBar.border",
-            "keybindingLabel.background",
-            "statusBar.border"
-        ], [
-            "editorLineNumber.foreground",
-            "activityBar.inactiveForeground",
-            "input.placeholderForeground",
-            "dropdown.border",
-            "list.deemphasizedForeground",
-            "menu.separatorBackground",
-            "menu.border",
-            "pickerGroup.border",
-            "widget.border",
-            "titleBar.inactiveForeground",
-            "keybindingLabel.border",
-            "keybindingLabel.bottomBorder",
-        ], [
-            "foreground",
-            "editorCursor.foreground",
-            "editorLineNumber.activeForeground",
-            "editorSuggestWidget.foreground",
-            "tab.activeForeground",
-            "activityBar.foreground",
-            "sideBar.foreground",
-            "sideBarTitle.foreground",
-            "settings.dropdownForeground",
-            "settings.textInputForeground",
-            "settings.numberInputForeground",
-            "list.focusForeground",
-            "list.hoverForeground",
-            "terminal.foreground",
-            "menu.foreground",
-            "quickInput.foreground",
-            "titleBar.activeForeground",
-            "search.resultsInfoForeground",
-            "keybindingLabel.foreground",
-        ], [
-            "activityBarBadge.foreground",
-            "badge.foreground",
-            "input.foreground",
-            "list.activeSelectionForeground"
-        ]],
-        "scrollbar": [
-            "scrollbarSlider.background",
-            "scrollbarSlider.hoverBackground",
-            "scrollbarSlider.activeBackground"
-        ],
-        "med_highlight": [
-            "tab.inactiveForeground",
-            "tab.unfocusedInactiveForeground",
-            "menu.selectionBackground",
-            "badge.background",
-            "button.background",
-            "button.hoverBackground",
-            "terminalCommandDecoration.successBackground",
-            "symbolIcon.fileForeground",
-            "pickerGroup.foreground"
-        ],
-        "bright_highlight": [
-            "focusBorder",
-            "tab.activeBorderTop",
-            "panelTitle.activeBorder",
-            "terminal.tab.activeBorder",
-            "activityBar.activeBorder",
-            "textLink.foreground",
-            "editorSuggestWidget.highlightForeground",
-            "editorSuggestWidget.focusHighlightForeground",
-            "panelTitleBadge.background",
-            "activityBarBadge.background",
-            "statusBarItem.remoteBackground"
-        ],
-        "ui_warning": [
-            "editorWarning.foreground",
-            "editorLightBulbAutoFix.foreground"
-        ],
-        "ui_error": [
-            "errorForeground",
-            "editorError.foreground",
-            "problemsErrorIcon.foreground",
-            "list.errorForeground"
-        ],
-        "git": [
-            "gitDecoration.ignoredResourceForeground",
-            "gitDecoration.untrackedResourceForeground",
-            "gitDecoration.modifiedResourceForeground",
-            "gitDecoration.deletedResourceForeground",
-            "gitDecoration.conflictingResourceForeground",
-            "gitDecoration.addedResourceForeground",
-            "editorGutter.addedBackground",
-            "editorGutter.deletedBackground",
-            "editorGutter.modifiedBackground"
-        ],
-        "brackets": [
-            "editorBracketHighlight.foreground1",
-            "editorBracketHighlight.foreground2",
-            "editorBracketHighlight.foreground3"
-        ]
+    # VSCODE UI COLORS
+    vscode_ui_settings = settings["workbench.colorCustomizations"]
+    theme_vscode_mapping: dict[str, dict[int, str | list[str]]] = {
+        "basic": {
+            0: [  # Background, darkest
+                "editor.background",
+                "editorCursor.background",
+                "editorGroup.emptyBackground",
+                "editorGroupHeader.tabsBackground",
+                "editorGroupHeader.noTabsBackground",
+                "tab.interactiveBackground",
+                "panel.background",
+                "editorWidget.background",
+                "activityBar.background",
+                "sideBar.background",
+                "sideBarTitle.background",
+                "sideBarSectionHeader.background",
+                "menu.background",
+                "quickInput.background",
+                "titleBar.activeBackground",
+                "titleBar.inactiveBackground",
+                "statusBar.background"
+            ],
+            1: [  # Background, dark
+                "tab.activeBackground",
+                "panel.border",
+                "editor.lineHighlightBackground",
+                "editor.selectionBackground",
+                "editorGroup.border",
+                "editorGroupHeader.border",
+                "editorGroupHeader.tabsBorder",
+                "tab.border",
+                "tab.unfocusedHoverBackground",
+                "tab.hoverBackground",
+                "editorWidget.border",
+                "activityBar.border",
+                "sideBar.border",
+                "input.background",
+                "checkbox.background",
+                "settings.dropdownBackground",
+                "dropdown.background",
+                "dropdown.listBackground",
+                "list.activeSelectionBackground",
+                "list.inactiveSelectionBackground",
+                "list.hoverBackground",
+                "titleBar.border",
+                "keybindingLabel.background",
+                "statusBar.border"
+            ],
+            2: [  # Foreground, medium
+                "editorLineNumber.foreground",
+                "activityBar.inactiveForeground",
+                "input.placeholderForeground",
+                "dropdown.border",
+                "list.deemphasizedForeground",
+                "menu.separatorBackground",
+                "menu.border",
+                "pickerGroup.border",
+                "widget.border",
+                "titleBar.inactiveForeground",
+                "keybindingLabel.border",
+                "keybindingLabel.bottomBorder",
+            ],
+            3: [  # Foreground, light
+                "foreground",
+                "editorCursor.foreground",
+                "editorLineNumber.activeForeground",
+                "editorSuggestWidget.foreground",
+                "tab.activeForeground",
+                "activityBar.foreground",
+                "sideBar.foreground",
+                "sideBarTitle.foreground",
+                "settings.dropdownForeground",
+                "settings.textInputForeground",
+                "settings.numberInputForeground",
+                "list.focusForeground",
+                "list.hoverForeground",
+                "terminal.foreground",
+                "menu.foreground",
+                "quickInput.foreground",
+                "titleBar.activeForeground",
+                "search.resultsInfoForeground",
+                "keybindingLabel.foreground",
+            ],
+            4: [  # Foreground, lightest
+                "activityBarBadge.foreground",
+                "badge.foreground",
+                "input.foreground",
+                "list.activeSelectionForeground"
+            ]
+        },
+        "scrollbar": {
+            0: [
+                "scrollbarSlider.background",
+                "scrollbarSlider.hoverBackground",
+                "scrollbarSlider.activeBackground"
+            ]
+        },
+        "highlight": {
+            0: [  # Medium highlight
+                "tab.inactiveForeground",
+                "tab.unfocusedInactiveForeground",
+                "menu.selectionBackground",
+                "badge.background",
+                "button.background",
+                "button.hoverBackground",
+                "terminalCommandDecoration.successBackground",
+                "symbolIcon.fileForeground",
+                "pickerGroup.foreground"
+            ],
+            1: [  # Bright highlight
+                "focusBorder",
+                "tab.activeBorderTop",
+                "panelTitle.activeBorder",
+                "terminal.tab.activeBorder",
+                "activityBar.activeBorder",
+                "textLink.foreground",
+                "editorSuggestWidget.highlightForeground",
+                "editorSuggestWidget.focusHighlightForeground",
+                "panelTitleBadge.background",
+                "activityBarBadge.background",
+                "statusBarItem.remoteBackground"
+            ],
+            2: [  # Warning Color
+                "editorWarning.foreground",
+                "editorLightBulbAutoFix.foreground"
+            ],
+            3: [  # Error Color
+                "errorForeground",
+                "editorError.foreground",
+                "problemsErrorIcon.foreground",
+                "list.errorForeground"
+            ],
+        },
+        "git": {
+            0: [  # Added
+                "gitDecoration.addedResourceForeground",
+                "editorGutter.addedBackground",
+            ],
+            1: [  # Modified
+                "gitDecoration.modifiedResourceForeground",
+                "editorGutter.modifiedBackground"
+            ],
+            2: [  # Deleted
+                "gitDecoration.deletedResourceForeground",
+                "editorGutter.deletedBackground",
+            ],
+            3: "gitDecoration.ignoredResourceForeground",
+            4: "gitDecoration.untrackedResourceForeground",
+            5: "gitDecoration.conflictingResourceForeground",
+        },
+        "brackets": {
+            0: "editorBracketHighlight.foreground1",
+            1: "editorBracketHighlight.foreground2",
+            2: "editorBracketHighlight.foreground3",
+            3: "editorBracketHighlight.foreground4",
+            4: "editorBracketHighlight.foreground5",
+            5: "editorBracketHighlight.foreground6",
+        },
+        "ansi": {
+            0: "terminal.ansiBlack",
+            1: "terminal.ansiRed",
+            2: "terminal.ansiGreen",
+            3: "terminal.ansiYellow",
+            4: "terminal.ansiBlue",
+            5: "terminal.ansiMagenta",
+            6: "terminal.ansiCyan",
+            7: "terminal.ansiWhite",
+            8: "terminal.ansiBrightBlack",
+            9: "terminal.ansiBrightRed",
+            10: "terminal.ansiBrightGreen",
+            11: "terminal.ansiBrightYellow",
+            12: "terminal.ansiBrightBlue",
+            13: "terminal.ansiBrightMagenta",
+            14: "terminal.ansiBrightCyan",
+            15: "terminal.ansiBrightWhite",
+        }
     }
-    for key, palette in colors.items():
-        pass
+    for color_group, colormap in theme_vscode_mapping.items():
+        palette = colors[color_group]
+        for color_index, settings_to_apply in colormap.items():
+            if color_index > len(palette):
+                color_index = -1
+            if isinstance(settings_to_apply, list):
+                for single_setting in settings_to_apply:
+                    vscode_ui_settings[single_setting] = palette[color_index]
+            else:
+                vscode_ui_settings[settings_to_apply] = palette[color_index]
+
+    # LANGUAGE SYNTAX HIGHLIGHTING
+    syntax_color_settings = settings["editor.tokenColorCustomizations"]["textMateRules"]
+    theme_language_mapping = {
+        "Normal": ["source", "keyword.operator", "markup.text"],
+        "Comment": [
+            "comment",
+            "comment.in_line",
+            "comment.block.documentation",
+            "string.quoted.docstring.multi.python"
+        ],
+        "Numeric": "constant.numeric",
+        "String": "string",
+        "Keyword": [
+            "keyword",
+            "meta.preprocessor",
+            "keyword.control",
+            "storage.type",
+            "keyword.operator.quantifier.regexp",
+        ],
+        "Constant": [
+            "constant.language",
+            "constant.character.python",
+            "storage.type.format.python",
+            "keyword.operator.logical.python",
+            "constant.character.format.placeholder.other.python"
+        ],
+        "Variable": [
+            "variable",
+            "support.type.property-name",
+            "support.variable",
+            "entity.other.attribute"
+        ],
+        "Function": [
+            "entity.name.function",
+            "support.function",
+            "support.function.magic.python"  # Includes magic/dunder methods
+        ],
+        "Types": [
+            "entity.name.type",
+            "entity.name.namespace",
+            "heading.1.markdown",
+            "heading.2.markdown",
+            "heading.3.markdown",
+            "heading.4.markdown",
+            "heading.5.markdown",
+            "heading.6.markdown",
+        ],
+        "Constant Name": [
+            "variable.other.enummember",
+            "variable.other.constant",
+            "string.regexp.quoted.single.python",
+            "string.regexp.quoted.double.python",
+            "punctuation.character.set.begin.regexp",
+            "punctuation.character.set.end.regexp",
+            "keyword.operator.negation.regexp",
+            "constant.character.set.regexp",
+            "support.other.parenthesis.regexp"
+        ],
+        "Language Variable": "variable.language.python"
+    }
+    syntax_color_settings.clear()
+    for group, color in colors["language"].items():
+        settings_group = {
+            "scope": theme_language_mapping[group],
+            "settings": {"foreground": color}
+        }
+        syntax_color_settings.append(settings_group)
+    output = settings_file.with_name(settings_file.stem + "_out.json")
+    with open(output, 'w') as file:
+        json.dump(settings, file)
     return
 
 
