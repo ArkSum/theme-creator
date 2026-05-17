@@ -17,7 +17,7 @@ function M.setup()
 
 """
 
-    theme_mappings: {
+    theme_mappings = {
         "basic": {
             0: [  # Background, darkest
             ],
@@ -62,6 +62,7 @@ function M.setup()
     }
 
     for group, colorset in colors.items():
+        pass
 
     with open(highlights_file, 'w') as file:
         file.write(contents)

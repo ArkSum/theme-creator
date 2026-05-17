@@ -22,30 +22,33 @@ def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
 def rgb_to_hsl(r: int, g: int, b: int) -> tuple[float, float, float]:
     if not ((0 <= r < 256) and (0 <= g < 256) and (0 <= b < 256)):
         raise ValueError("Invalid RBG values. Must be 0 <= x < 256")
-    M = max(r, g, b)
-    m = min(r, g, b)
+    rp = r / 255
+    gp = g / 255
+    bp = b / 255
+    M = max(rp, gp, bp)
+    m = min(rp, gp, bp)
     C = M - m
     if C == 0:
         Hp = 0
-    elif M == r:
-        Hp = ((g - b) / C) % 6
-    elif M == g:
-        Hp = ((b - r) / C) + 2
-    elif M == b:
-        Hp = ((r - g) / C) + 4
+    elif M == rp:
+        Hp = ((gp - bp) / C) % 6
+    elif M == gp:
+        Hp = ((bp - rp) / C) + 2
+    elif M == bp:
+        Hp = ((rp - gp) / C) + 4
     else:
         raise ValueError("An unknown ValueError occurred.")
     H = 60 * Hp
-    L = 0.5 * (M + m) / 255
+    L = 0.5 * (M + m)
     if L == 1 or L == 0:
         S = 0
     else:
-        S = abs(C / (1 - (abs(2 * L - 1) - 1))) / 255
+        S = abs(C / (1 - abs(2 * L - 1)))
     return (H, S, L)
 
 
 def hsl_to_rgb(h: float, s: float, l: float) -> tuple[int, int, int]:
-    if not ((s >= 0 and s <= 1) and (l >= 0 and l <= 1)):
+    if not ((0 <= s <= 1) and (0 <= l <= 1)):
         raise ValueError("Values must be valid HSL values.")
     h = h % 360
     C = (1 - abs(2 * l - 1)) * s
@@ -88,3 +91,7 @@ def lighten(color: str, by: float) -> str:
     elif l < 0:
         l = 0
     return hsl_to_hex(h, s, l)
+
+def lightness(color: str) -> float:
+    _, _, l = hex_to_hsl(color)
+    return l

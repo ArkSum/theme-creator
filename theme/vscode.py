@@ -1,15 +1,15 @@
 from pathlib import Path
 import json
+from color.colors import lightness
 
 
 def modify_vscode_settings(settings_file: Path,
-                           colors: dict[str, list[str]]) -> None:
+                           ui_colors: dict, language_colors: dict) -> None:
     settings = {}
     with open(settings_file, 'r') as file:
         settings = json.load(file)
-    if settings == {}:
-        raise ValueError("Could not extract JSON from settings file!")
 # VSCODE UI COLORS
+    settings["workbench.colorCustomizations"] = {}
     vscode_ui_settings = settings["workbench.colorCustomizations"]
     theme_vscode_mapping: dict[str, dict[int, str | list[str]]] = {
         "basic": {
@@ -19,7 +19,7 @@ def modify_vscode_settings(settings_file: Path,
                 "editorGroup.emptyBackground",
                 "editorGroupHeader.tabsBackground",
                 "editorGroupHeader.noTabsBackground",
-                "tab.interactiveBackground",
+                "tab.inactiveBackground",
                 "panel.background",
                 "editorWidget.background",
                 "activityBar.background",
@@ -103,6 +103,8 @@ def modify_vscode_settings(settings_file: Path,
         "scrollbar": {
             0: [
                 "scrollbarSlider.background",
+            ],
+            1: [
                 "scrollbarSlider.hoverBackground",
                 "scrollbarSlider.activeBackground"
             ]
@@ -188,7 +190,7 @@ def modify_vscode_settings(settings_file: Path,
         }
     }
     for color_group, colormap in theme_vscode_mapping.items():
-        palette = colors[color_group]
+        palette = ui_colors[color_group]
         for color_index, settings_to_apply in colormap.items():
             if color_index > len(palette):
                 color_index = -1
@@ -199,6 +201,8 @@ def modify_vscode_settings(settings_file: Path,
                 vscode_ui_settings[settings_to_apply] = palette[color_index]
 
 # LANGUAGE SYNTAX HIGHLIGHTING
+    settings["editor.tokenColorCustomizations"] = {}
+    settings["editor.tokenColorCustomizations"]["textMateRules"] = []
     syntax_color_settings = settings["editor.tokenColorCustomizations"]["textMateRules"]
     theme_language_mapping = {
         "Normal": ["source", "keyword.operator", "markup.text"],
@@ -230,6 +234,9 @@ def modify_vscode_settings(settings_file: Path,
             "support.variable",
             "entity.other.attribute"
         ],
+        "Parameter": [
+            "variable.parameter"
+        ],
         "Function": [
             "entity.name.function",
             "support.function",
@@ -259,13 +266,17 @@ def modify_vscode_settings(settings_file: Path,
         "Language Variable": "variable.language.python"
     }
     syntax_color_settings.clear()
-    for group, color in colors["language"].items():
+    for group, color in language_colors.items():
         settings_group = {
             "scope": theme_language_mapping[group],
             "settings": {"foreground": color}
         }
+        if lightness(color) < 0.45:
+            settings_group["settings"]["fontStyle"] = "bold"
+        if group == "Function":
+            settings_group["settings"]["fontStyle"] = "italic"
         syntax_color_settings.append(settings_group)
-    output = settings_file.with_name(settings_file.stem + "_out.json")
-    with open(output, 'w') as file:
+
+    with open(settings_file, 'w') as file:
         json.dump(settings, file)
     return
