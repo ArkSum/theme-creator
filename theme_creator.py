@@ -9,6 +9,7 @@ from theme.vscode import modify_vscode_settings
 from theme.neovim import create_lua_groups
 from color.colors import (hex_to_rgb, hex_to_hsl, hsl_to_hex,
                           rgb_to_hex, lighten, lightness)
+from color.palette import ANSI_Palette
 
 
 def create_highlighted_range(start_color: str, total_colors: int,
@@ -298,31 +299,15 @@ def generate_theme_palette(basic: list[str] | str, git: list[str] | str | None =
     }
     return theme
 
-
-def demo_palettes() -> None:
-    gray_palette = rgb_lerp("#12100d", "#c9c2b5", 6)
-    blue_palette = rgb_lerp("#1f3a70", "#e5e7fc", 6)
-    red_palette = rgb_lerp("#7b2f2d", "#ff4f00", 6)
-    copper_palette = create_highlighted_range("#c9b292", 3, -0.2)
-    other_colors = ["#5b8267", "#6bbd85", "#cd7e1f", "#edb940",
-                    "#18ade4", "#baddf0", "#ba160c", "#fc3b1b", "#eaece9"]
-    all_colors = [*gray_palette, *blue_palette, *red_palette, *other_colors]
-    ansi_overrides = {
-        'magenta': copper_palette[2],
-        'bright_magenta': copper_palette[0],
-    }
-    ansi_colors = generate_ansi_palette(*all_colors,
-                                        overrides=ansi_overrides)
-    show_palettes(ansi_colors)
-    return
-
+def create_ansi_palette_v2(*colors: str, overrides: dict | None = None) -> ANSI_Palette:
+    return ANSI_Palette()
 
 def main() -> None:
     gray_palette = rgb_lerp("#12100d", "#c9c2b5", 4)
     gray_palette.append("#eaece9")
     blue_palette = rgb_lerp("#1f3a70", "#e5e7fc", 6)
     red_palette = rgb_lerp("#7b2f2d", "#ff4f00", 6)
-    copper_palette = create_highlighted_range("#d3c3ab", 3, 0.6)
+    copper_palette = create_highlighted_range("#d3c3ab", 3, 0.5)
     other_colors = ["#5b8267", "#6bbd85", "#cd7e1f", "#edb940",
                     "#18ade4", "#baddf0", "#2369b1", "#ba160c", "#fc3b1b"]
     col4_palette = other_colors[:6]
@@ -344,7 +329,7 @@ def main() -> None:
     }
     language = {  # Docstring:  #cd7e1f
         "Normal": gray_palette[3],  #c9c2b6
-        "Comment": copper_palette[2],  #9f8662
+        "Comment": copper_palette[1],  #9f8662
         "Numeric": other_colors[5],  #baddf0
         "String": other_colors[1],  #6bbd85
         "Keyword": other_colors[8],  #fc3b1b

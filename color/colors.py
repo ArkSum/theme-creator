@@ -21,7 +21,7 @@ def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
 
 def rgb_to_hsl(r: int, g: int, b: int) -> tuple[float, float, float]:
     if not ((0 <= r < 256) and (0 <= g < 256) and (0 <= b < 256)):
-        raise ValueError("Invalid RBG values. Must be 0 <= x < 256")
+        raise ValueError("Invalid RBG values. Must be 0 <= x < 256\n")
     rp = r / 255
     gp = g / 255
     bp = b / 255

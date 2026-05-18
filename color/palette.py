@@ -35,8 +35,32 @@ class Git_Palette(Palette):
 
 @dataclass
 class UI_Palette(Palette):
-    background: str
+    background_dark: str
+    background_medium: str
+    background_light: str
     borders: str
-    normal_text: str
-    light_text: str
+    text_dark: str
+    text_medium: str
+    text_light: str
+    highlight_first: str
+    highlight_second: str
+    highlight_third: str
+    warning: str
+    error: str
+    info: str
+
+@dataclass
+class Language_Palette(Palette):
+    source: str
+    comment: str
+    numeric: str
+    string: str
+    keyword: str
+    language: str
+    function: str
+    variable: str
+    types: str
+    other: str
+    parameter: str
+
 
